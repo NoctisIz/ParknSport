@@ -1,12 +1,10 @@
 <?php
 
-use App\Http\Controllers\ProfileController;
+use App\Models\MapController;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\ProfileController;
 require __DIR__.'/auth.php';
 
-Route::get('/', function () {
-    return view('index');
-});
 
 Route::get('/dashboard', function () {
     return view('dashboard');
@@ -17,9 +15,10 @@ Route::middleware('auth')->group(function () {
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 });
-
+Route::get('/', [MapController::class, 'map'])->name('map.index');
+Route::get('/markers', [MapController::class, 'getMarkers'])->name('map.markers');
 Route::get('/', function () {
-    return view('index'); // Vue par défaut ou remplacez par votre vue personnalisée
+    return view('map'); // Vue par défaut ou remplacez par votre vue personnalisée
 })->name('home');
 
 // Page "À propos"
