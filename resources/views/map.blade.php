@@ -1,22 +1,24 @@
 @extends('layouts.app')
 
 @section('content')
+<!-- Structure principale de la page -->
 <div class="flex h-full bg-gray-100">
-    <!-- Modifier la position de l'indicateur de chargement -->
-    <!-- Bouton de réinitialisation -->
+    <!-- Bouton de réinitialisation de la vue -->
     <button id="resetViewBtn" 
             class="fixed top-4 right-4 bg-blue-500 text-white px-6 py-3 rounded-full shadow-xl z-[9999] hover:bg-blue-600 transition-all duration-200 flex items-center space-x-2 hover:scale-105">
         <span class="text-xl">🔄</span>
         <span class="font-medium">Vue générale</span>
     </button>
 
-    <!-- Ajouter après la div du bouton de réinitialisation -->
+    <!-- Panneau de contrôle latéral -->
     <div class="fixed top-20 right-4 bg-white p-4 rounded-lg shadow-xl z-[9999] space-y-4">
+        <!-- Bouton pour placer un marqueur -->
         <button id="placeMarkerBtn" 
                 class="w-full bg-green-500 text-white px-4 py-2 rounded-lg hover:bg-green-600 transition-all duration-200 flex items-center justify-center gap-2">
             <span>📍</span>
             <span>Placer un point</span>
         </button>
+        <!-- Contrôle du rayon de recherche -->
         <div class="space-y-2">
             <label class="text-sm text-gray-600">Distance de recherche</label>
             <div class="flex items-center gap-2">
@@ -25,6 +27,7 @@
                 <span id="radiusValue" class="text-sm font-medium">1000m</span>
             </div>
         </div>
+        <!-- Champ de recherche d'adresse -->
         <div class="space-y-2">
             <label class="text-sm text-gray-600">Rechercher une adresse</label>
             <div class="relative">
@@ -42,7 +45,7 @@
         </div>
     </div>
 
-    <!-- Sidebar améliorée -->
+    <!-- Barre latérale avec les filtres et résultats -->
     <div class="bg-white w-96 h-full shadow-lg z-10 flex flex-col">
         <div class="p-6 border-b">
             <h1 class="text-2xl font-bold text-gray-800 flex items-center gap-2">
@@ -99,8 +102,9 @@
         </div>
     </div>
 
+    <!-- Conteneur de la carte -->
     <div class="flex-1 relative">
-        <!-- Indicateur de chargement repositionné -->
+        <!-- Indicateur de chargement -->
         <div id="loadingIndicator" class="hidden absolute bottom-4 left-4 bg-white px-4 py-2 rounded-full shadow-lg z-[9999] flex items-center gap-2">
             <div class="animate-spin rounded-full h-4 w-4 border-2 border-blue-500 border-t-transparent"></div>
             <span class="text-sm font-medium text-gray-700">Chargement des parkings...</span>
@@ -110,40 +114,29 @@
 </div>
 
 <script>
-    // Initialize map
+    // Initialisation de la carte Leaflet
     const map = L.map('map').setView([47.478419, -0.563166], 13);
+    
+    // Ajout de la couche de tuiles (fond de carte)
     L.tileLayer('https://{s}.tile.jawg.io/jawg-light/{z}/{x}/{y}{r}.png?access-token=cJPcOiK2rCU52SCrm0H2UB9YdJqg8u2wADnEdShSbu8E6vtSGE3RFhXaD2RtD7fg', {
         maxZoom: 19,
         attribution: '© Jawg Maps'
     }).addTo(map);
 
-    // Définir les variables une seule fois
-    let markers = [];
-    let equipments = [];
-    const markerLayer = L.layerGroup().addTo(map);
-    const parkingLayer = L.layerGroup().addTo(map);
+    // Déclaration des variables globales
+    let markers = [];                  // Tableau des marqueurs d'équipements
+    let equipments = [];              // Tableau des équipements
+    let maxSearchDistance = 0.5;      // Distance de recherche par défaut (en km)
+    let selectedEquipment = null;     // Équipement actuellement sélectionné
+    let isPlacingMarker = false;      // Mode placement de marqueur actif/inactif
+    let userMarker = null;            // Marqueur utilisateur
+    let searchRadius = 1000;          // Rayon de recherche en mètres
 
-    // Ajouter cette variable globale après la déclaration des layers
-    let maxSearchDistance = 0.5; // Distance initiale en km
+    // Création des couches de marqueurs
+    const markerLayer = L.layerGroup().addTo(map);    // Couche pour les équipements
+    const parkingLayer = L.layerGroup().addTo(map);   // Couche pour les parkings
 
-    // Ajouter après la déclaration des variables globales
-    let selectedEquipment = null;
-
-    // Ajouter après la déclaration des variables globales
-    let isPlacingMarker = false;
-    let userMarker = null;
-    let searchRadius = 1000; // en mètres
-
-    // Icons modernisés
-    const createIcon = (emoji, color) => L.divIcon({
-        className: 'custom-div-icon',
-        html: `<div class="flex items-center justify-center w-10 h-10 rounded-full ${color} shadow-lg border-2 border-white">
-                <span class="text-xl">${emoji}</span>
-               </div>`,
-        iconSize: [40, 40],
-    }).addTo(map);
-
-    // Styles pour les icônes
+    // Configuration des icônes personnalisées
     const iconStyles = {
         equipment: L.divIcon({
             className: 'custom-div-icon',
@@ -171,7 +164,7 @@
         })
     };
 
-    // Ajout de la légende
+    // Ajout de la légende sur la carte
     const legend = L.control({ position: 'bottomright' });
     legend.onAdd = function(map) {
         const div = L.DomUtil.create('div', 'bg-white p-3 rounded-lg shadow-lg');
@@ -196,7 +189,7 @@
     };
     legend.addTo(map);
 
-    // Fonction améliorée pour créer un popup
+    // Fonction de création du contenu des popups
     function createPopupContent(title, content, button = null) {
         return `
             <div class="p-4 max-w-sm">
@@ -213,7 +206,7 @@
         `;
     }
 
-    // Function to create a marker for equipment
+    // Fonction de création d'un marqueur pour un équipement
     function createMarker(equipment) {
         if (!equipment.geo_point_2d) {
             return null;
@@ -236,7 +229,7 @@
         return marker;
     }
 
-    // Function to update the results list
+    // Fonction de mise à jour de la liste des résultats
     function updateResultsList(filteredEquipments) {
         const resultsList = document.getElementById('results-list');
         resultsList.innerHTML = '';
@@ -277,7 +270,7 @@
         });
     }
 
-    // Function to filter equipments
+    // Fonction de filtrage des équipements
     function filterEquipments() {
         const searchText = document.getElementById('search').value.toLowerCase();
         const selectedType = document.getElementById('typeFilter').value;
@@ -325,7 +318,7 @@
         updateResultsList(filtered);
     }
 
-    // Function to populate filters
+    // Fonction de remplissage des filtres
     function populateFilters(data) {
         // Type filter
         const types = [...new Set(data
@@ -369,7 +362,7 @@
         });
     }
 
-    // Function to calculate distance between two points
+    // Fonction de calcul de distance entre deux points
     function calculateDistance(lat1, lon1, lat2, lon2) {
         const R = 6371; // Earth's radius in km
         const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -381,7 +374,7 @@
         return R * c; // Distance in km
     }
 
-    // Remplacer la fonction showNearbyParkings complètement
+    // Fonction d'affichage des parkings à proximité
     async function showNearbyParkings(equipmentLat, equipmentLon, shouldZoom = true) { // Ajout du paramètre shouldZoom
         const loadingIndicator = document.getElementById('loadingIndicator');
         try {
@@ -511,7 +504,7 @@
         }
     }
 
-    // Fonction pour réinitialiser la vue
+    // Fonction de réinitialisation de la vue
     function resetView() {
         // Nettoyer tous les layers
         markerLayer.clearLayers();
@@ -538,7 +531,7 @@
         map.setView([47.478419, -0.563166], 13);
     }
 
-    // Ajouter ces nouvelles fonctions avant les event listeners
+    // Fonction de basculement du mode placement de marqueur
     function toggleMarkerPlacement() {
         isPlacingMarker = !isPlacingMarker;
         const btn = document.getElementById('placeMarkerBtn');
@@ -556,6 +549,7 @@
         }
     }
 
+    // Fonction de recherche des équipements à proximité
     function findNearbyEquipments(lat, lon, radius) {
         markerLayer.clearLayers();
         
@@ -587,7 +581,7 @@
         return nearbyEquipments.length;
     }
 
-    // Remplacer la fonction searchAddress par cette version corrigée
+    // Fonction de recherche d'adresse
     async function searchAddress(query) {
         try {
             // Nettoyer la requête et encoder correctement
@@ -654,6 +648,7 @@
         }
     }
 
+    // Fonction de placement d'un marqueur à une adresse
     function placeMarkerAtAddress(address) {
         if (!address.geo_point_2d) return;
         
@@ -678,6 +673,7 @@
         findNearbyEquipments(address.geo_point_2d.lat, address.geo_point_2d.lon, searchRadius);
     }
 
+    // Chargement initial des données des équipements
     fetch('https://angersloiremetropole.opendatasoft.com/api/explore/v2.1/catalog/datasets/equipements-sportifs-angers/exports/json')
         .then(response => response.json())
         .then(data => {
@@ -699,17 +695,12 @@
             alert('Erreur lors du chargement des données');
         });
 
-    // Event listeners
+    // Écouteurs d'événements
     document.getElementById('search').addEventListener('input', filterEquipments);
     document.getElementById('typeFilter').addEventListener('change', filterEquipments);
     document.getElementById('activityFilter').addEventListener('change', filterEquipments);
-
-    // Ajouter l'event listener pour le bouton de réinitialisation
     document.getElementById('resetViewBtn').addEventListener('click', resetView);
-
-    // Ajouter ces event listeners à la fin du fichier
     document.getElementById('placeMarkerBtn').addEventListener('click', toggleMarkerPlacement);
-
     document.getElementById('searchRadius').addEventListener('input', function(e) {
         const value = e.target.value;
         document.getElementById('radiusValue').textContent = value + 'm';
@@ -721,6 +712,7 @@
         }
     });
 
+    // Gestion des événements de la carte
     map.on('click', function(e) {
         if (!isPlacingMarker) return;
         
@@ -776,6 +768,7 @@
         }
     });
 
+    // Gestion de la recherche d'adresse
     let searchTimeout;
     document.getElementById('addressSearch').addEventListener('input', (e) => {
         clearTimeout(searchTimeout);
@@ -791,6 +784,7 @@
         }, 300); // Délai réduit pour une meilleure réactivité
     });
 
+    // Autres écouteurs d'événements pour la recherche d'adresse
     document.getElementById('searchAddressBtn').addEventListener('click', () => {
         const query = document.getElementById('addressSearch').value.trim();
         if (query.length >= 3) {
@@ -815,7 +809,9 @@
     });
 </script>
 
+<!-- Styles CSS personnalisés -->
 <style>
+    /* Styles pour les icônes personnalisées */
     .custom-div-icon {
         transition: all 0.3s ease;
     }
