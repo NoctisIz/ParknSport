@@ -152,31 +152,27 @@ npm install
 ```
 Cette commande installe toutes les dépendances front-end nécessaires (TailwindCSS, etc.).
 
-4. Configurer l'environnement
-```bash
-cp .env.example .env
-```
 Modifier le fichier .env avec vos configurations locales (base de données, etc.).
 
-5. Générer la clé d'application
+4. Générer la clé d'application
 ```bash
 php artisan key:generate
 ```
 Cette commande génère une clé unique pour votre application, nécessaire pour le chiffrement.
 
-6. Créer et migrer la base de données
+5. Créer et migrer la base de données
 ```bash
 php artisan migrate
 ```
 Cette commande crée les tables nécessaires dans votre base de données.
 
-7. Compiler les assets
+6. Compiler les assets
 ```bash
 npm run dev
 ```
 Pour le développement, ou `npm run build` pour la production.
 
-8. Lancer l'application
+7. Lancer l'application
 ```bash
 php artisan serve
 ```
