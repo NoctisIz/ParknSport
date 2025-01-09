@@ -4,7 +4,7 @@
 <div class="flex h-full bg-gray-100">
     <!-- Bouton de réinitialisation -->
     <button id="resetViewBtn" 
-            class="fixed top-4 right-4 bg-blue-500 text-white px-6 py-3 rounded-full shadow-xl z-50 hover:bg-blue-600 transition-all duration-200 flex items-center space-x-2 hover:scale-105">
+            class="fixed top-4 right-4 bg-blue-500 text-white px-6 py-3 rounded-full shadow-xl z-[9999] hover:bg-blue-600 transition-all duration-200 flex items-center space-x-2 hover:scale-105">
         <span class="text-xl">🔄</span>
         <span class="font-medium">Vue générale</span>
     </button>
@@ -246,8 +246,15 @@
             const matchesType = !selectedType ||
                                 (equipment.type_equipement === selectedType) ||
                                 (equipment.equip_2 === selectedType);
-            const matchesActivity = !selectedActivity ||
-                                    (equipment.activite && equipment.activite.toLowerCase().includes(selectedActivity.toLowerCase()));
+            
+            // Amélioration de la correspondance des activités
+            const matchesActivity = !selectedActivity || (
+                equipment.activite && 
+                equipment.activite
+                    .split(/,(?![^(]*\))/)
+                    .map(a => a.trim())
+                    .some(a => a.toLowerCase() === selectedActivity.toLowerCase())
+            );
 
             return matchesSearch && matchesType && matchesActivity;
         });
@@ -285,15 +292,27 @@
             typeFilter.appendChild(option);
         });
 
-        // Activity filter
+        // Activity filter - Amélioration du traitement des activités
         const activities = [...new Set(data
-            .flatMap(e => (e.activite || '').split(','))
-            .map(a => a.trim())
-            .filter(Boolean)
+            .flatMap(e => {
+                if (!e.activite) return [];
+                // Séparation intelligente des activités
+                return e.activite
+                    .split(/,(?![^(]*\))/) // Sépare par virgule seulement si pas entre parenthèses
+                    .map(a => a.trim())
+                    .filter(a => a.length > 0);
+            })
         )];
 
+        console.log('Activités trouvées:', activities);
+
         const activityFilter = document.getElementById('activityFilter');
-        activities.sort().forEach(activity => {
+        activities.sort((a, b) => {
+            // Retirer les parenthèses pour le tri
+            const cleanA = a.replace(/\([^)]*\)/g, '').trim();
+            const cleanB = b.replace(/\([^)]*\)/g, '').trim();
+            return cleanA.localeCompare(cleanB);
+        }).forEach(activity => {
             const option = document.createElement('option');
             option.value = activity;
             option.textContent = activity;
@@ -326,84 +345,97 @@
             .bindPopup('Équipement sélectionné')
             .addTo(markerLayer);
 
-            // Récupérer les données
-            const [parkingsVoituresResp, disponibilitesResp, parkingsVeloResp] = await Promise.all([
-                fetch('https://angersloiremetropole.opendatasoft.com/api/explore/v2.1/catalog/datasets/parking-angers/records?limit=100'),
-                fetch('https://angersloiremetropole.opendatasoft.com/api/explore/v2.1/catalog/datasets/angers_stationnement/records?limit=100'),
+            // Récupérer les données avec la nouvelle URL pour les disponibilités
+            const [parkingsData, disponibilitesData, parkingsVeloData] = await Promise.all([
+                fetch('https://angersloiremetropole.opendatasoft.com/api/explore/v2.1/catalog/datasets/angers_stationnement/records?limit=20')
+                    .then(res => res.json()),
+                fetch('https://angersloiremetropole.opendatasoft.com/api/explore/v2.1/catalog/datasets/parking-angers/records?limit=20')
+                    .then(res => res.json()),
                 fetch('https://angersloiremetropole.opendatasoft.com/api/explore/v2.1/catalog/datasets/parking-velo-angers/records?limit=100')
+                    .then(res => res.json())
             ]);
 
-            const parkingsVoitures = await parkingsVoituresResp.json();
-            const disponibilites = await disponibilitesResp.json();
-            const parkingsVelo = await parkingsVeloResp.json();
+            console.log('Données parkings:', parkingsData.results);
+            console.log('Disponibilités:', disponibilitesData.results);
 
-            const MAX_DISTANCE = 1; // 1km radius
+            const MAX_DISTANCE = 2;
             let nearbyMarkersAdded = false;
 
             // Traitement des parkings voiture
-            parkingsVoitures.results.forEach(parking => {
-                // Utiliser ylat et xlong directement
-                if (parking.ylat && parking.xlong) {
-                    const lat = parseFloat(parking.ylat);
-                    const lon = parseFloat(parking.xlong);
+            parkingsData.results.forEach(parking => {
+                if (!parking.geo_point_2d) return;
+
+                const [lat, lon] = parking.geo_point_2d.split(',').map(coord => parseFloat(coord.trim()));
+                const distance = calculateDistance(equipmentLat, equipmentLon, lat, lon);
+                
+                if (distance <= MAX_DISTANCE) {
+                    // Trouver la disponibilité correspondante par ID
+                    const disponibilite = disponibilitesData.results.find(d => 
+                        d.nom?.toLowerCase() === parking.id_parking?.toLowerCase()
+                    );
                     
-                    const distance = calculateDistance(equipmentLat, equipmentLon, lat, lon);
-                    console.log(`Distance pour ${parking.nom}: ${distance}km`);
-                    
-                    if (distance <= MAX_DISTANCE) {
-                        nearbyMarkersAdded = true;
-                        const dispo = disponibilites.results.find(d => d.nom === parking.nom);
-                        console.log(`Disponibilité pour ${parking.nom}:`, dispo);
-                        
-                        const parkingMarker = L.marker([lat, lon], {
-                            icon: iconStyles.car
-                        }).bindPopup(createPopupContent(
-                            parking.nom,
-                            `
-                                <div class="space-y-2">
-                                    <p><strong>Type:</strong> ${parking.type_ouvrage || 'Non spécifié'}</p>
-                                    <p><strong>Distance:</strong> ${(distance * 1000).toFixed(0)}m</p>
-                                    <p><strong>Places totales:</strong> ${parking.nb_places}</p>
-                                    ${dispo ? `
-                                        <div class="mt-2 p-2 ${dispo.disponible > 10 ? 'bg-green-100' : 'bg-red-100'} rounded">
-                                            <p class="font-bold">${dispo.disponible} places disponibles</p>
-                                        </div>
-                                    ` : ''}
-                                    <p><strong>Tarif 1h:</strong> ${parking.tarif_1h !== null ? parking.tarif_1h + '€' : 'Gratuit'}</p>
-                                    <p class="text-sm text-gray-600">${parking.adresse}</p>
-                                </div>
-                            `
-                        ));
-                        parkingLayer.addTo(map); // S'assurer que le layer est ajouté à la carte
-                        parkingMarker.addTo(parkingLayer);
-                    }
+                    console.log(`Disponibilité pour ${parking.nom}:`, disponibilite);
+                    nearbyMarkersAdded = true;
+
+                    const parkingMarker = L.marker([lat, lon], {
+                        icon: iconStyles.car
+                    }).bindPopup(createPopupContent(
+                        parking.nom,
+                        `
+                            <div class="space-y-2">
+                                <p><strong>Distance:</strong> ${(distance * 1000).toFixed(0)}m</p>
+                                ${disponibilite ? `
+                                    <div class="mt-2 p-2 ${disponibilite.disponible > 10 ? 'bg-green-100' : 'bg-red-100'} rounded">
+                                        <p class="font-bold text-${disponibilite.disponible > 10 ? 'green' : 'red'}-700">
+                                            ${disponibilite.disponible} places disponibles
+                                        </p>
+                                    </div>
+                                ` : ''}
+                                <p><strong>Total places:</strong> ${parking.nb_places}</p>
+                                <p><strong>Tarif:</strong> ${parking.tarif_1h ? parking.tarif_1h + '€/h' : 'Gratuit'}</p>
+                                <p class="text-sm text-gray-600">${parking.adresse}</p>
+                                ${parking.url ? `
+                                    <a href="${parking.url}" target="_blank" 
+                                       class="text-blue-500 hover:underline text-sm block mt-2">
+                                        Plus d'informations →
+                                    </a>
+                                ` : ''}
+                            </div>
+                        `
+                    ));
+
+                    parkingLayer.addTo(map);
+                    parkingMarker.addTo(parkingLayer);
                 }
             });
 
             // Traitement des parkings vélos
-            parkingsVelo.results.forEach(parking => {
-                if (parking.geo_shape && parking.geo_shape.geometry && parking.geo_shape.geometry.coordinates) {
-                    const [lon, lat] = parking.geo_shape.geometry.coordinates;
-                    const distance = calculateDistance(equipmentLat, equipmentLon, lat, lon);
-                    
-                    if (distance <= MAX_DISTANCE) {
-                        nearbyMarkersAdded = true;
-                        const parkingMarker = L.marker([lat, lon], {
-                            icon: iconStyles.bike
-                        }).bindPopup(createPopupContent(
-                            parking.nom_parkng || 'Parking vélo',
-                            `
-                                <p><strong>Type:</strong> ${parking.type}</p>
+            parkingsVeloData.results?.forEach(parking => {
+                if (!parking.geo_shape?.geometry?.coordinates) return;
+
+                const [lon, lat] = parking.geo_shape.geometry.coordinates;
+                const distance = calculateDistance(equipmentLat, equipmentLon, lat, lon);
+                
+                if (distance <= MAX_DISTANCE) {
+                    nearbyMarkersAdded = true;
+                    const parkingMarker = L.marker([lat, lon], {
+                        icon: iconStyles.bike
+                    }).bindPopup(createPopupContent(
+                        parking.nom_parkng || 'Parking vélo',
+                        `
+                            <div class="space-y-2">
+                                <p><strong>Type:</strong> ${parking.type || 'Non spécifié'}</p>
                                 <p><strong>Distance:</strong> ${(distance * 1000).toFixed(0)}m</p>
-                                <p><strong>Capacité:</strong> ${parking.capacite}</p>
-                                <p><strong>Accès:</strong> ${parking.acces}</p>
+                                <p><strong>Capacité:</strong> ${parking.capacite || 'Non spécifiée'} places</p>
                                 <div class="mt-2 p-2 ${parking.securise === 'OUI' ? 'bg-green-100' : 'bg-yellow-100'} rounded">
-                                    <p><strong>Sécurisé:</strong> ${parking.securise}</p>
+                                    <p><strong>Sécurité:</strong> ${parking.securise === 'OUI' ? '🔒 Sécurisé' : '⚠️ Non sécurisé'}</p>
                                 </div>
-                            `
-                        ));
-                        parkingLayer.addLayer(parkingMarker);
-                    }
+                                ${parking.acces ? `<p><strong>Accès:</strong> ${parking.acces}</p>` : ''}
+                            </div>
+                        `
+                    ));
+                    parkingLayer.addTo(map);
+                    parkingMarker.addTo(parkingLayer);
                 }
             });
 
@@ -413,7 +445,7 @@
                 map.fitBounds(bounds, { padding: [50, 50] });
             } else {
                 map.setView([equipmentLat, equipmentLon], 16);
-                alert('Aucun parking trouvé à moins de 1km');
+                alert('Aucun parking trouvé à moins de 2km');
             }
 
         } catch (error) {
@@ -424,8 +456,14 @@
 
     // Fonction pour réinitialiser la vue
     function resetView() {
+        // Nettoyer tous les layers
         markerLayer.clearLayers();
+        parkingLayer.clearLayers();
+        
+        // Recharger les équipements
         filterEquipments();
+        
+        // Recentrer la carte
         map.setView([47.478419, -0.563166], 13);
     }
 
@@ -455,11 +493,7 @@
     document.getElementById('activityFilter').addEventListener('change', filterEquipments);
 
     // Ajouter l'event listener pour le bouton de réinitialisation
-    document.getElementById('resetViewBtn').addEventListener('click', () => {
-        markerLayer.clearLayers();
-        filterEquipments();
-        map.setView([47.478419, -0.563166], 13);
-    });
+    document.getElementById('resetViewBtn').addEventListener('click', resetView);
 </script>
 
 <style>
